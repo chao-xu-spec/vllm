@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 import flydsl.expr as fx
 
+from vllm.models.deepseek_v41.amd.mono.common.arch import GFX942
 from vllm.models.deepseek_v41.amd.mono.common.plan import BLOCKS, WAVES
 from vllm.models.deepseek_v41.amd.mono.stages import moe_plan as mplan
 from vllm.models.deepseek_v41.amd.mono.stages.dims import UG_PART, Dims
@@ -127,6 +128,14 @@ class RouteShape:
 
     @property
     def shared0(self) -> int:
+        """One token tile: the grid's last CTAs, which the FFN seam leaves idle
+        from its start (no reduce / gate / norm task there) -- the shared
+        expert's weights (independent of the routing) are in flight from then,
+        not from the route on CTAs the routed stream already saturates."""
+        if not self.multi and not self.tuned and not GFX942:
+            at = BLOCKS - self.shared_units
+            assert self.route0 + self.tokens <= at
+            return at
         return self.route0 + max(8, self.tokens)
 
     @property
